@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inventario</title>
+<style>
+  :root { --fondo: #f4f6fb; --tarjeta: #fff; --texto: #1d2333; --suave: #5f6778; --borde: #dfe3ec; --acento: #2f5bd3; --rojo: #c62828; --verde: #1d7a46; }
+  @media (prefers-color-scheme: dark) { :root { --fondo: #12151c; --tarjeta: #1b1f29; --texto: #e7eaf1; --suave: #9aa2b2; --borde: #2e3442; --acento: #7096ff; --rojo: #ff7b7b; --verde: #5fd394; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 system-ui, 'Segoe UI', Roboto, sans-serif; background: var(--fondo); color: var(--texto); }
+  header { padding: 14px 20px; background: var(--tarjeta); border-bottom: 1px solid var(--borde); }
+  header h1 { margin: 0; font-size: 1.15rem; }
+  main { max-width: 1040px; margin: 0 auto; padding: 16px; }
+  .resumen { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .resumen div, .tarjeta { background: var(--tarjeta); border: 1px solid var(--borde); border-radius: 12px; padding: 14px; }
+  .resumen strong { display: block; font-size: 1.5rem; }
+  .resumen span { color: var(--suave); font-size: .85rem; }
+  .tarjeta { margin-bottom: 14px; }
+  h2 { font-size: 1rem; margin: 0 0 10px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--borde); }
+  th { color: var(--suave); font-weight: 600; font-size: .82rem; }
+  td.num, th.num { text-align: right; }
+  tr.bajo td:first-child { border-left: 4px solid var(--rojo); }
+  .chip { font-size: .75rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--verde) 18%, transparent); color: var(--verde); }
+  .chip.bajo { background: color-mix(in srgb, var(--rojo) 18%, transparent); color: var(--rojo); }
+  form { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+  label { display: flex; flex-direction: column; gap: 3px; font-size: .82rem; color: var(--suave); }
+  input, select, button { font: inherit; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--borde); background: var(--tarjeta); color: var(--texto); }
+  button { background: var(--acento); border-color: var(--acento); color: #fff; cursor: pointer; }
+  button.sec { background: transparent; color: var(--texto); border-color: var(--borde); padding: 3px 9px; font-size: .85rem; }
+  .error { color: var(--rojo); min-height: 1.2em; margin: 6px 0 0; }
+  .tabla-scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<header><h1>📦 Inventario</h1></header>
+<main>
+  <div class="resumen" id="resumen"></div>
+
+  <div class="tarjeta">
+    <h2>Registrar movimiento</h2>
+    <form id="form-mov">
+      <label>Producto <select name="producto" required></select></label>
+      <label>Tipo <select name="tipo"><option value="entradas">Entrada</option><option value="salidas">Salida</option><option value="ajustes">Ajuste por conteo</option></select></label>
+      <label><span id="etq-cantidad">Cantidad</span> <input name="cantidad" type="number" min="0" required style="width: 110px"></label>
+      <label>Motivo <input name="motivo" placeholder="Compra, entrega, conteo…"></label>
+      <button>Registrar</button>
+    </form>
+    <p class="error" id="error-mov"></p>
+  </div>
+
+  <div class="tarjeta">
+    <h2>Productos</h2>
+    <div class="tabla-scroll">
+      <table>
+        <thead><tr><th>SKU</th><th>Producto</th><th class="num">Stock</th><th class="num">Mínimo</th><th class="num">Costo</th><th class="num">Valor</th><th>Estado</th><th></th></tr></thead>
+        <tbody id="productos"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="tarjeta">
+    <h2>Nuevo producto</h2>
+    <form id="form-prod">
+      <label>SKU <input name="sku" required pattern="[A-Za-z0-9\-]{3,40}" placeholder="TEC-01"></label>
+      <label>Nombre <input name="nombre" required></label>
+      <label>Costo unitario <input name="costoUnitario" type="number" min="0" step="0.01" required style="width: 120px"></label>
+      <label>Stock mínimo <input name="stockMinimo" type="number" min="0" value="0" required style="width: 110px"></label>
+      <button>Crear</button>
+    </form>
+    <p class="error" id="error-prod"></p>
+  </div>
+
+  <div class="tarjeta" id="kardex" hidden></div>
+</main>
+<script>
+const $ = (s) => document.querySelector(s)
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
+const dinero = (n) => Number(n).toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+async function api(ruta, cuerpo) {
+  const r = await fetch('/api' + ruta, cuerpo ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) } : undefined)
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(j.detail || `Error ${r.status}`)
+  return j
+}
+
+async function cargar() {
+  const [resumen, pagina] = await Promise.all([api('/resumen'), api('/productos?size=100')])
+  $('#resumen').innerHTML = `
+    <div><strong>${resumen.productos}</strong><span>productos</span></div>
+    <div><strong style="color:${resumen.bajoMinimo ? 'var(--rojo)' : 'inherit'}">${resumen.bajoMinimo}</strong><span>por reponer (en o bajo el mínimo)</span></div>
+    <div><strong>Bs ${dinero(resumen.valorTotal)}</strong><span>valor del inventario</span></div>`
+  const lista = pagina.content
+  $('#productos').innerHTML = lista.map((p) => `<tr class="${p.bajoMinimo ? 'bajo' : ''}">
+      <td>${esc(p.sku)}</td><td>${esc(p.nombre)}</td><td class="num">${p.stock}</td><td class="num">${p.stockMinimo}</td>
+      <td class="num">${dinero(p.costoUnitario)}</td><td class="num">${dinero(p.valorEnStock)}</td>
+      <td><span class="chip ${p.bajoMinimo ? 'bajo' : ''}">${p.bajoMinimo ? 'Reponer' : 'OK'}</span></td>
+      <td><button class="sec" data-kardex="${p.id}" data-nombre="${esc(p.nombre)}">Kardex</button></td></tr>`).join('') || '<tr><td colspan="8">Sin productos.</td></tr>'
+  const sel = $('#form-mov [name=producto]')
+  const previo = sel.value
+  sel.innerHTML = lista.map((p) => `<option value="${p.id}">${esc(p.sku)} · ${esc(p.nombre)}</option>`).join('')
+  if (previo) sel.value = previo
+}
+
+async function verKardex(id, nombre) {
+  const movs = await api(`/productos/${id}/kardex`)
+  const caja = $('#kardex')
+  caja.hidden = false
+  caja.innerHTML = `<h2>Kardex · ${esc(nombre)}</h2><div class="tabla-scroll"><table>
+    <thead><tr><th>Fecha</th><th>Tipo</th><th class="num">Cantidad</th><th class="num">Stock resultante</th><th>Motivo</th></tr></thead>
+    <tbody>${movs.map((m) => `<tr><td>${new Date(m.fecha).toLocaleString('es')}</td><td>${m.tipo}</td><td class="num">${m.cantidad}</td><td class="num">${m.stockResultante}</td><td>${esc(m.motivo)}</td></tr>`).join('') || '<tr><td colspan="5">Sin movimientos.</td></tr>'}</tbody></table></div>`
+  caja.scrollIntoView({ behavior: 'smooth' })
+}
+
+$('#form-mov [name=tipo]').addEventListener('change', (e) => {
+  $('#etq-cantidad').textContent = e.target.value === 'ajustes' ? 'Stock contado' : 'Cantidad'
+})
+$('#form-mov').addEventListener('submit', async (e) => {
+  e.preventDefault()
+  const f = new FormData(e.target)
+  const tipo = f.get('tipo')
+  const n = Number(f.get('cantidad'))
+  const cuerpo = tipo === 'ajustes' ? { stockContado: n, motivo: f.get('motivo') || 'Conteo físico' } : { cantidad: n, motivo: f.get('motivo') || '' }
+  try {
+    await api(`/productos/${f.get('producto')}/${tipo}`, cuerpo)
+    $('#error-mov').textContent = ''
+    e.target.cantidad.value = ''
+    e.target.motivo.value = ''
+    await cargar()
+  } catch (err) {
+    $('#error-mov').textContent = err.message
+  }
+})
+$('#form-prod').addEventListener('submit', async (e) => {
+  e.preventDefault()
+  const d = Object.fromEntries(new FormData(e.target))
+  try {
+    await api('/productos', { sku: d.sku, nombre: d.nombre, costoUnitario: Number(d.costoUnitario), stockMinimo: Number(d.stockMinimo) })
+    $('#error-prod').textContent = ''
+    e.target.reset()
+    await cargar()
+  } catch (err) {
+    $('#error-prod').textContent = err.message
+  }
+})
+$('#productos').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-kardex]')
+  if (b) verKardex(b.dataset.kardex, b.dataset.nombre)
+})
+cargar()
+</script>
+</body>
+</html>
