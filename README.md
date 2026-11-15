@@ -50,4 +50,4 @@ src/test/                         pruebas unitarias y de integración (MockMvc)
 Autenticación con Spring Security, varios almacenes, órdenes de compra automáticas al llegar al mínimo y migraciones con Flyway.
 
 ---
-Proyecto de portafolio desarrollado con asistencia de herramientas de IA. Licencia MIT.
+Licencia MIT.
