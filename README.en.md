@@ -1,6 +1,6 @@
-# 📦 Inventory (Spring Boot)
+# Inventory (Spring Boot)
 
-> 🇪🇸 [Versión en español](README.md)
+> [Versión en español](README.md)
 
 ![Inventory web panel: summary, products and low-stock alerts](docs/captura.png)
 
